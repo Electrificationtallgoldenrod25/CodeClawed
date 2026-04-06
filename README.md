@@ -87,7 +87,10 @@ When `claude -p` runs with its working directory set to `output/agents/forge/`, 
 
 ## Known Gaps
 
-All previously identified gaps have been covered. THIS DOES NOT MEAN THIS IS READY FOR IMPLMENTATION: Additional gaps are being idenfied and handled.
+- Telegram/Discord/WeChat etc support. I may not build this. PRs welcome.
+- Currently Mac only. I need Unix support, so this will get fixed.
+- Workspaces are migrated verbatim, so references to OpenClaw etc need to be purged.
+- No doubt there is lots more to cover. I'VE BARELY TESTED ANY OF IT YET.
 
 ## Requirements
 
@@ -98,4 +101,4 @@ All previously identified gaps have been covered. THIS DOES NOT MEAN THIS IS REA
 
 ## License
 
-TBD
+MIT
