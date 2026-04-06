@@ -4,7 +4,7 @@ A build prompt for a migration tool to move your [OpenClaw](https://github.com/o
 
 ## Status: Work in Progress
 
-This project is **not complete**. The core migration pipeline (analyze, generate, verify, chat) works end-to-end, but several components are stubs or partially implemented. See [Known Gaps](#known-gaps) below.
+This project is **not complete**. The core migration pipeline (analyze, generate, verify, chat) works end-to-end, but several (large!) components are stubs or partially implemented. See [Known Gaps](#known-gaps) below.
 
 We are actively developing this tool against a live 16-agent OpenClaw deployment. The prompt and architecture are evolving as we resolve remaining issues.
 
@@ -87,6 +87,7 @@ When `claude -p` runs with its working directory set to `output/agents/forge/`, 
 
 ## Known Gaps
 
+- SKILLS ARE NOT PORTED YET. 
 - Telegram/Discord/WeChat etc support. I may not build this. PRs welcome. The current interface is a simple WebChat.
 - Currently Mac only. I need Unix support, so this will get fixed.
 - Workspaces are migrated verbatim, so references to OpenClaw etc need to be purged/updated.
