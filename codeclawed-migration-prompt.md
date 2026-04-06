@@ -63,6 +63,10 @@ OpenClaw is stateful and daemon-driven. Claude Code is stateless and invocation-
 │       ├── schema.sql      # pgvector table definition
 │       ├── mcp-server.ts   # MCP server exposing memory_search, memory_store, memory_list
 │       └── sync.ts         # File watcher syncing .md memory files to database
+├── scripts/
+│   ├── env.sh              # Environment config (generated)
+│   ├── extract-session-dialogue.py  # Read chat-history.jsonl for dream pipeline
+│   └── jobs/               # Per-cron-job wrappers (generated)
 ├── chat/                   # Web frontend replacing Discord
 │   ├── server.ts           # Express + WebSocket, session resumption
 │   └── public/
@@ -305,8 +309,10 @@ Two exported functions:
 
 Also provide `lib/agent-runner-cli.ts` — a CLI wrapper so shell scripts can call:
 ```bash
-node agent-runner-cli.js --agent main --model opus --message "..." --skip-permissions
+node agent-runner-cli.js --agent main --model opus --message "..." --skip-permissions --source cron
 ```
+
+The CLI wrapper always appends both the user message and agent response to `chat-history.jsonl` in the agent's working directory. This makes chat-history.jsonl the single source of truth for all agent interactions, regardless of whether they originated from the chat server, cron jobs, or headless scripts. The `--source` flag (default: `cron`) tags entries with their origin (`chat`, `cron`, or `sentinel`) so downstream consumers like the dream pipeline can filter by source.
 
 ---
 
@@ -517,7 +523,7 @@ This prompt describes the standard migration framework. The following are deploy
 
 - **Sentinel systems** — Zero-token check scripts that only invoke the LLM on trigger. If your deployment uses sentinels, you'll need a sentinel converter that adapts the check/dispatch scripts and generates launchd plists for the check schedules.
 
-- **Dream/reflection consolidation** — Nightly or weekly memory consolidation pipelines (extract-session-dialogue, dream-preprocessor, session-health-report). These read from chat history, condense conversations, and produce memory entries. If your deployment uses these, you'll need to port the gate scripts and adapt the dialogue extractor to read from chat-history.jsonl.
+- **Dream/reflection consolidation** — Nightly or weekly memory consolidation pipelines (dream-preprocessor, dream-gate, session-health-report). The dialogue extraction step is handled: `scripts/extract-session-dialogue.py` reads from `chat-history.jsonl` (which agent-runner-cli always appends to), filters by `--since`/`--until` date range and `--sources` (default: `chat,cron`), and outputs JSONL in the format `dream-preprocessor.py` expects. The remaining gate scripts and preprocessor still need to be ported.
 
 - **Vector search / embeddings** — The memory MCP server supports full-text search out of the box. Semantic vector search requires an embedding provider (OpenAI, Ollama, etc.) and a compute step during sync. The schema supports it but the embedding pipeline is a separate concern.
 
