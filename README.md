@@ -1,6 +1,6 @@
 # CodeClawed
 
-A migration tool for moving [OpenClaw](https://github.com/openclaw) multi-agent deployments to [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+A prompt to build a migration tool for moving your [OpenClaw](https://github.com/openclaw) multi-agent deployments to [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 ## Status: Work in Progress
 
