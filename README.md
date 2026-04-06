@@ -87,16 +87,7 @@ When `claude -p` runs with its working directory set to `output/agents/forge/`, 
 
 ## Known Gaps
 
-These are the areas that are incomplete or not yet implemented:
-
-| Area | Status | Impact |
-|------|--------|--------|
-| `install` command | Stub — prints "not yet implemented" | Can't auto-install launchd plists; must copy manually |
-| Cron job generation | Generates 0 jobs if all are disabled in OpenClaw | Need `--include-disabled` flag to migrate disabled jobs |
-| Vector search | Schema exists, embeddings never computed | Memory search is full-text only; no semantic search |
-| Database setup | No CLI command to create DB / run schema | Must manually run `createdb` + `psql < schema.sql` |
-| Tests | Zero test files | vitest is configured but no tests written |
-| Source script templates | `env.sh` generated inline, no `wrapper.sh` | Works, but harder to customize |
+All previously identified gaps have been covered. THIS DOES NOT MEAN THIS IS READY FOR IMPLMENTATION: Additional gaps are being idenfied and handled.
 
 ## Requirements
 
