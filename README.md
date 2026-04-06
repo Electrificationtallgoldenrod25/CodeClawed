@@ -87,9 +87,9 @@ When `claude -p` runs with its working directory set to `output/agents/forge/`, 
 
 ## Known Gaps
 
-- Telegram/Discord/WeChat etc support. I may not build this. PRs welcome.
+- Telegram/Discord/WeChat etc support. I may not build this. PRs welcome. The current interface is a simple WebChat.
 - Currently Mac only. I need Unix support, so this will get fixed.
-- Workspaces are migrated verbatim, so references to OpenClaw etc need to be purged.
+- Workspaces are migrated verbatim, so references to OpenClaw etc need to be purged/updated.
 - No doubt there is lots more to cover. I'VE BARELY TESTED ANY OF IT YET.
 
 ## Requirements
