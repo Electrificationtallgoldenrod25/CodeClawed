@@ -31,7 +31,7 @@ OpenClaw is stateful and daemon-driven. Claude Code is stateless and invocation-
 ```
 <project>/
 ├── src/                    # Migration CLI
-│   ├── cli.ts              # Entry point (commander): analyze, generate, verify, install, chat
+│   ├── cli.ts              # Entry point (commander): analyze, generate, verify, install, chat, db
 │   ├── types.ts            # All shared TypeScript interfaces
 │   ├── constants.ts        # Tool mappings, model mappings, limits
 │   ├── analyze/            # Phase 1: Parse OpenClaw deployment
@@ -39,14 +39,15 @@ OpenClaw is stateful and daemon-driven. Claude Code is stateless and invocation-
 │   │   ├── workspace.ts    # Scan workspace directories, read .md files
 │   │   └── cron.ts         # Parse cron/jobs.json, filter, categorize
 │   ├── generate/           # Phase 2: Produce Claude Code project
-│   │   ├── index.ts        # Orchestrator: iterate agents, generate shared infra
+│   │   ├── index.ts        # Orchestrator: iterate agents, generate shared infra (renders env.sh from Handlebars template)
 │   │   ├── agent-project.ts  # Generate one agent's full directory
 │   │   └── converters/     # Per-concern transformation modules
 │   │       ├── identity.ts # SOUL.md + USER.md + IDENTITY.md → CLAUDE.md
 │   │       ├── rules.ts    # AGENTS.md → .claude/rules/*.md
 │   │       ├── tools.ts    # Tool deny list → --disallowed-tools mapping
 │   │       ├── cron.ts     # Cron jobs → wrapper scripts + launchd plists
-│   │       └── memory.ts   # Copy memory files, generate SQL seed
+│   │       ├── memory.ts   # Copy memory files, generate SQL seed
+│   │       └── sentinel.ts # Sentinel scripts → adapted scripts + registry
 │   ├── verify/             # Phase 3: Validate output
 │   │   └── index.ts
 │   └── util/
@@ -61,16 +62,43 @@ OpenClaw is stateful and daemon-driven. Claude Code is stateless and invocation-
 │   │   └── launchd.ts      # macOS launchd implementation
 │   └── memory/
 │       ├── schema.sql      # pgvector table definition
+│       ├── embed.ts        # Embedding provider abstraction (OpenAI, Ollama)
 │       ├── mcp-server.ts   # MCP server exposing memory_search, memory_store, memory_list
 │       └── sync.ts         # File watcher syncing .md memory files to database
 ├── scripts/
-│   ├── env.sh              # Environment config (generated)
+│   ├── env.sh              # Standalone environment config (for manual use)
+│   ├── env.sh.hbs          # Handlebars template for generating env.sh into output
+│   ├── wrapper.sh          # Generic headless Claude Code wrapper for gate scripts
+│   ├── dream-gate.sh       # Nightly dream orchestrator (checks activity, triggers dreams)
+│   ├── reflection-gate.sh  # Weekly reflection orchestrator
+│   ├── dream-preprocessor.py  # Condenses chat-history.jsonl into lightweight digests
 │   ├── extract-session-dialogue.py  # Read chat-history.jsonl for dream pipeline
+│   ├── session-health-report.sh  # Checks agent activity in chat-history.jsonl
 │   └── jobs/               # Per-cron-job wrappers (generated)
 ├── chat/                   # Web frontend replacing Discord
 │   ├── server.ts           # Express + WebSocket, session resumption
 │   └── public/
 │       └── index.html      # Single-page dark-themed chat UI
+├── test/                   # Vitest test suite
+│   ├── converters/         # Tests for each converter
+│   │   ├── identity.test.ts
+│   │   ├── rules.test.ts
+│   │   ├── tools.test.ts
+│   │   ├── cron.test.ts
+│   │   └── sentinel.test.ts
+│   ├── util/
+│   │   └── cron-parser.test.ts
+│   ├── analyze/
+│   │   └── cron.test.ts
+│   ├── agent-runner.test.ts
+│   └── fixtures/           # Sample .md, .json files for tests
+│       ├── SOUL.md
+│       ├── USER.md
+│       ├── IDENTITY.md
+│       ├── AGENTS.md
+│       ├── jobs.json
+│       ├── registry.json
+│       └── openclaw.json
 ├── package.json
 └── tsconfig.json
 ```
@@ -98,10 +126,24 @@ output/
 ├── lib/memory/seed.sql               # Database seed from memory files
 ├── scripts/
 │   ├── env.sh                        # Environment config
-│   └── jobs/                         # Per-cron-job wrappers
-│       ├── <slug>.sh
-│       ├── <slug>.plist
-│       └── messages/<slug>.md
+│   ├── wrapper.sh                    # Generic agent invocation wrapper
+│   ├── dream-gate.sh                 # Nightly dream orchestrator
+│   ├── reflection-gate.sh            # Weekly reflection orchestrator
+│   ├── dream-preprocessor.py         # Session digest condenser
+│   ├── extract-session-dialogue.py   # chat-history.jsonl extractor
+│   ├── session-health-report.sh      # Activity checker
+│   ├── jobs/                         # Per-cron-job wrappers
+│   │   ├── <slug>.sh
+│   │   ├── <slug>.plist
+│   │   └── messages/<slug>.md
+│   └── sentinel/                     # Adapted sentinel system
+│       ├── scripts/
+│       │   ├── run_sentinel.sh       # Adapted (openclaw → agent-runner)
+│       │   ├── dispatch_*.sh         # Adapted dispatch scripts
+│       │   └── check_*.sh            # Copied unchanged
+│       ├── registry.json             # Path-updated registry
+│       ├── state/                    # Copied state files
+│       └── <sentinel-name>.plist     # One plist per enabled sentinel
 ├── logs/
 ├── sessions.json                     # Active Claude Code session IDs per agent
 └── config.json                       # Master config for the deployment
@@ -269,6 +311,25 @@ curl -s -X POST "http://localhost:${CHAT_PORT:-3456}/api/deliver" \
 - Create symlinks from each agent's directory to shared-memory
 - Generate `seed.sql` with INSERT statements for all memory file contents (for pgvector database)
 
+### 6. Sentinel conversion
+
+Sentinels are zero-token monitoring scripts: a check script runs on a cron schedule, and only if the check triggers (exit code 1) does the LLM get invoked via a dispatch script. The generate phase wires sentinels into the output.
+
+**Source**: `~/.openclaw/workspace/skills/sentinel/` contains `registry.json`, a `scripts/` directory (run_sentinel.sh, dispatch scripts, check scripts), and a `state/` directory.
+
+**What gets adapted**:
+- `run_sentinel.sh` — `openclaw agent --message` calls replaced with `node agent-runner-cli.js --skip-permissions --message`. `$OC_HOME` replaced with `$CODECLAWED_HOME`. `$OPENCLAW` replaced with `claude`.
+- Dispatch scripts (`dispatch_youtube_feeds.sh`, `dispatch_freshrss_feeds.sh`) — same replacements, plus `openclaw message send` calls replaced with `curl` POST to the chat server's `/api/deliver` endpoint.
+- `registry.json` — all absolute paths rewritten from the OpenClaw sentinel directory to `output/scripts/sentinel/`.
+
+**What gets copied unchanged**: Check scripts (e.g., `check_youtube_feeds.sh`), utility scripts (e.g., `sentinel_ctl.py`), state files.
+
+**Launchd plists**: One plist per enabled sentinel, labeled `com.codeclawed.sentinel.<name>`. The plist runs `/bin/bash run_sentinel.sh <sentinel-name>` at the sentinel's schedule interval. Uses `cronToLaunchd()` from `cron-parser.ts` to convert the cron expression.
+
+**Output directory**: `output/scripts/sentinel/` with `scripts/`, `state/`, `registry.json`, and `*.plist` files.
+
+The `sentinelScripts` field in `GenerationResult` is populated with all generated/adapted file contents (keyed by filename).
+
 ---
 
 ## Agent Runner — The Critical Abstraction
@@ -303,9 +364,10 @@ Key details:
 - Stream-json output format: each line is a JSON object. Text content is at `message.content[].text` for assistant messages, and `result` field for the final result
 - The `session_id` appears in the first line (type: "system", subtype: "init")
 
-Two exported functions:
+Three exported functions:
 - `runAgent(options)` — returns a Promise<AgentResult> with full stdout/stderr after completion
 - `runAgentStreaming(options, onChunk)` — returns `{ process, result }` and calls onChunk for each stdout data event
+- `buildArgs(options)` — builds the claude CLI argument array from options (also used for testing)
 
 Also provide `lib/agent-runner-cli.ts` — a CLI wrapper so shell scripts can call:
 ```bash
@@ -381,11 +443,39 @@ Agent memory files at `output/agents/<id>/memory/*.md` are human-readable and th
 
 ### pgvector (optional, for semantic search)
 MCP server exposes memory tools to agents:
-- `memory_search(query, agent_id?, limit?)` — full-text search (vector search requires embedding provider)
-- `memory_store(content, file_path?)` — insert/upsert
-- `memory_list(agent_id?)` — list entries
+- `memory_search(query, agent_id?, limit?)` — hybrid vector + text search when embedding provider is configured, falls back to text-only search otherwise
+- `memory_store(content, file_path?)` — insert/upsert with embedding
+- `memory_list(agent_id?)` — list entries (includes `has_embedding` field)
 
-Sync daemon watches memory files and upserts changes to the database.
+Sync daemon watches memory files, computes embeddings via the configured provider, and upserts changes to the database.
+
+### Embedding provider (`lib/memory/embed.ts`)
+
+Abstraction over embedding APIs. Two implementations:
+
+- **OpenAI** (default): Uses `text-embedding-3-small` (1536 dimensions). Requires `OPENAI_API_KEY`. Supports batch embedding via the `/v1/embeddings` API.
+- **Ollama** (local alternative): Uses `nomic-embed-text` (768 dimensions) by default. Requires Ollama running at `OLLAMA_HOST` (default `http://localhost:11434`). No batch support (calls sequentially).
+
+```typescript
+interface EmbeddingProvider {
+  embed(text: string): Promise<number[]>;
+  embedBatch(texts: string[]): Promise<number[][]>;
+  readonly dimensions: number;
+}
+```
+
+Factory function `createEmbeddingProviderFromEnv()` auto-detects from environment:
+1. If `EMBEDDING_PROVIDER` is set (`openai` or `ollama`), uses that provider with optional `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` overrides
+2. If `OPENAI_API_KEY` is set, uses OpenAI
+3. Otherwise returns `null` — embeddings are skipped, search falls back to text-only
+
+### Hybrid search
+
+When embeddings are available, `memory_search` uses a weighted hybrid query:
+```sql
+(0.7 * (1 - (embedding <=> query_vector))) + (0.3 * ts_rank(tsvector, tsquery)) AS score
+```
+Weights (0.7 vector, 0.3 text) match OpenClaw's hybrid search config. Rows with either an embedding or a text match are included, so entries without embeddings still surface via text search.
 
 Schema:
 ```sql
@@ -409,11 +499,51 @@ Each agent's `.claude/mcp_config.json` points to the MCP server with `AGENT_ID` 
     "memory": {
       "command": "node",
       "args": ["<output>/lib/memory/mcp-server.js"],
-      "env": { "AGENT_ID": "<id>", "DATABASE_URL": "postgresql://localhost:5432/<dbname>" }
+      "env": { "AGENT_ID": "<id>", "DATABASE_URL": "postgresql://localhost:5432/<dbname>", "OPENAI_API_KEY": "..." }
     }
   }
 }
 ```
+
+---
+
+## Dream/Reflection Consolidation System
+
+The dream system is the nightly/weekly memory consolidation pipeline. Five scripts work together:
+
+### Script chain
+
+**`dream-gate.sh`** — Nightly orchestrator (launchd, 3 AM). For each agent:
+1. Calls `session-health-report.sh` to check for activity in the last 24 hours
+2. Calls `extract-session-dialogue.py` to pull recent dialogue into `dream-extracts/nightly-extract.jsonl`
+3. Calls `dream-preprocessor.py` to condense into lightweight digests
+4. Invokes the agent via `wrapper.sh` with the dream prompt
+
+**`reflection-gate.sh`** — Weekly orchestrator (launchd, Sundays at noon). Same pattern but 7-day window, outputs to `dream-extracts/weekly-extract.jsonl`.
+
+**`session-health-report.sh`** — Checks `chat-history.jsonl` for entries within a time window. Takes `<agent_dir>` and `--hours N`. Exits 0 (active) or 1 (inactive). Prints entry count to stdout.
+
+**`extract-session-dialogue.py`** — Reads `chat-history.jsonl`, filters by `--since`/`--until` date range and `--sources` (default: `chat,cron`), outputs JSONL in the format `dream-preprocessor.py` expects: `{type: "message", message: {role, content: [{type: "text", text: "..."}]}}`.
+
+**`dream-preprocessor.py`** — Two-tier condensation of `chat-history.jsonl`:
+1. Line-by-line truncation: truncates tool results/details to 500 chars, drops results for `Bash`/`Edit`/`Write`/`NotebookEdit` tools (assistant text captures the outcome)
+2. Chain summarization: finds sequential tool chains (6+ entries), optionally summarizes via Haiku API (requires `ANTHROPIC_API_KEY` env var)
+
+Output: `agents/<id>/dream-extracts/chat-history-digest.jsonl`. Skips processing if digest is newer than source.
+
+### Generation integration
+
+The generate phase copies all dream scripts from `scripts/` to `output/scripts/`. The verify phase warns if any dream script is missing from the output.
+
+### Key adaptation from OpenClaw
+
+| OpenClaw | CodeClawed |
+|----------|-----------|
+| `$OPENCLAW cron run <id>` | `wrapper.sh --agent <id> --model sonnet --message-file <path>` |
+| `$OC_HOME/agents/<id>/sessions/*.jsonl` | `agents/<id>/chat-history.jsonl` (single file) |
+| `$OC_HOME` | `$CODECLAWED_HOME` |
+| API key from `secrets.json` | `ANTHROPIC_API_KEY` environment variable |
+| Per-session .jsonl files in `sessions/` dir | Unified `chat-history.jsonl` written by agent-runner-cli |
 
 ---
 
@@ -426,6 +556,7 @@ The `verify` command checks the generated output:
 - Each agent has at least one rule file in `.claude/rules/`
 - Each cron wrapper script has a matching message file
 - `scripts/env.sh` exists
+- Dream system scripts present (`dream-gate.sh`, `reflection-gate.sh`, `dream-preprocessor.py`, `extract-session-dialogue.py`, `session-health-report.sh`, `wrapper.sh`) — warns if missing
 - Working directories referenced in config.json exist
 - Models are recognized Claude Code values
 
@@ -437,9 +568,32 @@ The `verify` command checks the generated output:
 <tool> analyze [--oc-home ~/.openclaw] [--format text|json]
 <tool> generate [--oc-home ~/.openclaw] [--output ./output] [--dry-run]
 <tool> verify [--output ./output]
-<tool> install [--output ./output] [--jobs <categories>] [--dry-run]
+<tool> install [--output ./output] [--jobs <categories>] [--dry-run] [--uninstall]
 <tool> chat [--port 3456] [--output ./output]
+<tool> db init [--database-url <url>]
+<tool> db status [--database-url <url>]
+<tool> db seed [--output ./output] [--database-url <url>]
+<tool> db reset [--database-url <url>] [--yes]
 ```
+
+### `install` subcommand
+
+Copies generated `.plist` files from `output/scripts/jobs/` to `~/Library/LaunchAgents/` and loads them via `launchctl load`. Reads `output/config.json` to discover the list of cron jobs and their slugs.
+
+- **`--jobs <categories>`**: Comma-separated list of categories to filter by (`dreams`, `reflections`, `sentinels`, `market`, `content`, `research`). Jobs are categorized by matching their name against `CRON_CATEGORY_PATTERNS` from `constants.ts`. Unmatched jobs are categorized as `other`.
+- **`--dry-run`**: Lists what would be installed/uninstalled without writing or loading plists.
+- **`--uninstall`**: Scans `~/Library/LaunchAgents/` for files prefixed with `LAUNCHD_LABEL_PREFIX` (`com.codeclawed`), unloads them via `launchctl unload`, and deletes the plist files. Combinable with `--dry-run`.
+
+Plists are named `com.codeclawed.<slug>.plist` in `~/Library/LaunchAgents/`. Jobs without a generated plist (e.g., one-time `at` schedule jobs) are skipped with a warning.
+
+### `db` subcommand group
+
+Manages the PostgreSQL database used by the memory system (pgvector).
+
+- **`db init`**: Checks that `psql` is available, runs `createdb codeclawed` (ignores "already exists" errors), then applies `lib/memory/schema.sql` via `psql`. Extracts the database name from `--database-url` (defaults to `postgresql://localhost:5432/codeclawed`).
+- **`db status`**: Connects to the database via `pg.Pool`, checks whether the `vector` extension is installed, whether the `memory_entries` table exists, and reports the row count.
+- **`db seed`**: Reads `<output>/lib/memory/seed.sql` (generated during `clawcode generate`) and executes it against the database.
+- **`db reset`**: Drops and recreates the database. Prompts for confirmation unless `--yes` is passed. Runs `dropdb`, `createdb`, then applies the schema.
 
 ---
 
@@ -488,12 +642,14 @@ TypeScript config: ES2022, NodeNext, strict, outDir dist/.
 | 6 | Tools converter | Step 1 |
 | 7 | Memory converter | Step 2 |
 | 8 | Cron converter | Step 1 |
-| 9 | generate/index.ts + agent-project.ts | Steps 4-8 |
+| 8b | Sentinel converter | Steps 1-2 |
+| 9 | generate/index.ts + agent-project.ts | Steps 4-8b |
 | 10 | verify/* | Step 9 |
 | 11 | cli.ts | Steps 2, 9, 10 |
 | 12 | scheduler/launchd.ts | — |
-| 13 | memory/mcp-server.ts + sync.ts + schema.sql | — |
+| 13 | memory/embed.ts + mcp-server.ts + sync.ts + schema.sql | — |
 | 14 | chat/* | Step 3 |
+| 15 | test/* | Steps 1-14 |
 
 Steps 3, 12, 13 can run in parallel with steps 4-11.
 
@@ -517,16 +673,36 @@ Steps 3, 12, 13 can run in parallel with steps 4-11.
 
 ---
 
+## Testing
+
+The project uses vitest (`npm test`). Tests are in `test/` (excluded from tsconfig). Fixtures are in `test/fixtures/`.
+
+**What is tested (86 tests across 8 files):**
+
+- **Converters** (all pure functions, tested with fixture data):
+  - `identity.test.ts` — CLAUDE.md generation, line limit enforcement, overflow, IDENTITY.md parsing, fallback to agent ID
+  - `rules.test.ts` — AGENTS.md section routing to correct rule files, session startup rewriting, heartbeat rewriting
+  - `tools.test.ts` — tool deny list mapping (browser→WebFetch/WebSearch, subagents→Bash(claude*), unknown tools, deduplication)
+  - `cron.test.ts` — wrapper script generation (env.sh sourcing, agent-runner-cli flags, delivery section), plist XML validity, slugification
+  - `sentinel.test.ts` — openclaw→agent-runner replacement, $OC_HOME→$CODECLAWED_HOME, dispatch script adaptation, registry path updates
+
+- **Utilities:**
+  - `cron-parser.test.ts` — cron-to-launchd conversion (fixed times, */N intervals, weekday ranges, hour lists, monthly), plist XML generation, XML escaping, error handling
+
+- **Analysis:**
+  - `cron.test.ts` — filterMigratableJobs (excludes at-schedule and already-run deleteAfterRun jobs, keeps disabled cron jobs), categorizeJobs (dream/reflection/research/market/content/other/skipped)
+
+- **Agent runner:**
+  - `agent-runner.test.ts` — buildArgs flag construction (--resume, --verbose with stream-json, --dangerously-skip-permissions, --disallowed-tools, --effort, --max-budget-usd, --append-system-prompt, --mcp-config)
+
+**Test fixtures** in `test/fixtures/`:
+- `SOUL.md`, `USER.md`, `IDENTITY.md`, `AGENTS.md` — sample workspace files with representative sections
+- `jobs.json` — 6 jobs: recurring cron (various categories), disabled cron, one-shot at (already run)
+- `registry.json` — 2 sentinel entries with paths to update
+- `openclaw.json` — minimal config with 2 agents, tool deny lists
+
+---
+
 ## What This Prompt Does NOT Cover
 
 This prompt describes the standard migration framework. The following are deployment-specific extensions that may or may not apply:
-
-- **Sentinel systems** — Zero-token check scripts that only invoke the LLM on trigger. If your deployment uses sentinels, you'll need a sentinel converter that adapts the check/dispatch scripts and generates launchd plists for the check schedules.
-
-- **Dream/reflection consolidation** — Nightly or weekly memory consolidation pipelines (dream-preprocessor, dream-gate, session-health-report). The dialogue extraction step is handled: `scripts/extract-session-dialogue.py` reads from `chat-history.jsonl` (which agent-runner-cli always appends to), filters by `--since`/`--until` date range and `--sources` (default: `chat,cron`), and outputs JSONL in the format `dream-preprocessor.py` expects. The remaining gate scripts and preprocessor still need to be ported.
-
-- **Vector search / embeddings** — The memory MCP server supports full-text search out of the box. Semantic vector search requires an embedding provider (OpenAI, Ollama, etc.) and a compute step during sync. The schema supports it but the embedding pipeline is a separate concern.
-
-- **Database setup automation** — The schema.sql exists but creating the database, installing pgvector, and running the schema is manual. A `db init` command would automate this.
-
-- **Tests** — The build order above doesn't include tests. A vitest suite covering converters (pure functions), utilities (cron parser, markdown parser), and agent-runner argument building is recommended.
