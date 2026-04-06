@@ -255,6 +255,7 @@ curl -s -X POST "http://localhost:${CHAT_PORT:-3456}/api/deliver" \
 - Fixed times → `<key>StartCalendarInterval</key><dict>` with Minute, Hour, Day, Month, Weekday keys
 - Ranges (e.g., `1-5` for weekdays) → expand to multiple CalendarInterval dicts
 - Lists (e.g., `3,15`) → expand to multiple CalendarInterval dicts
+- If the source job has `enabled: false`, set `<key>Disabled</key><true/>` in the plist
 
 ### 5. Memory conversion
 
@@ -428,7 +429,7 @@ The `verify` command checks the generated output:
 
 ```bash
 <tool> analyze [--oc-home ~/.openclaw] [--format text|json]
-<tool> generate [--oc-home ~/.openclaw] [--output ./output] [--dry-run] [--include-disabled]
+<tool> generate [--oc-home ~/.openclaw] [--output ./output] [--dry-run]
 <tool> verify [--output ./output]
 <tool> install [--output ./output] [--jobs <categories>] [--dry-run]
 <tool> chat [--port 3456] [--output ./output]
@@ -506,7 +507,7 @@ Steps 3, 12, 13 can run in parallel with steps 4-11.
 
 6. **The working directory IS the agent.** When `claude -p` runs with `cwd` set to an agent's directory, it auto-discovers that agent's CLAUDE.md, rules, and MCP config. There's no agent registry or instantiation — the filesystem defines identity.
 
-7. **All cron jobs in an existing deployment may be disabled.** The migration tool should support migrating disabled jobs (with an `--include-disabled` flag or by default) so they can be re-enabled in the new system.
+7. **All cron jobs in an existing deployment may be disabled.** The migration tool always migrates all recurring cron jobs regardless of their `enabled` state. Jobs that have `enabled: false` get `<key>Disabled</key><true/>` in their launchd plist, preventing them from auto-starting. They can be selectively enabled later via `clawcode install`.
 
 ---
 
